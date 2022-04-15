@@ -126,7 +126,7 @@ const getAvatars = async (tokens,avatar)=>{
 
 const getServer = async (avatar, placeID, cursor, stock) => {
   let tokensStock = stock || []
-  let r = await fetch("https://games.roblox.com/v1/games/"+placeID+"/servers/Public?limit=100",{headers:{"content-type":"application/json"}})
+  let r = await fetch("https://games.roblox.com/v1/games/"+placeID+"/servers/Public?limit=100"+(cursor && "&cursor="+cursor || ""),{headers:{"content-type":"application/json"}})
   let dts = await r.json()
   dts.data.forEach(s=>{
     s.playerTokens.forEach(token=>{tokensStock.push({token:token,serv:s})})
