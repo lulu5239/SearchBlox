@@ -1,4 +1,4 @@
-const REQUEST_LIMIT = 40;
+const REQUEST_LIMIT = 5;
 const RETRY_LIMIT = 3;
 const RETRY_AFTER = 10000;
 const COLORS = {
@@ -110,21 +110,38 @@ const join = (placeID, gameID) => {
   return chrome.tabs.update({ url });
 };
 
-const getServer = async (user, avatar, placeID, total, offset) => {
-  const percentage = Math.round((offset / total) * 100);
-  bar.style.width = `${percentage}%`;
+const getAvatars = async (tokens,avatar)=>{
+  if(tokens.length == 0){return}
+  let r = await fetch("https://thumbnails.roblox.com/v1/batch?_="+Math.random(),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(tokens.map(t=>{t.reqID = "0:"+t.token+":AvatarHeadshot:48x48:null:regular"
+  return {
+    size:"48x48",
+    token:t.token,
+    type:"AvatarHeadShot",
+    requestId: t.reqID,
+  }}))}) // Fetching thumbnails
+  let dts = (await r.json()).data.reverse()
+  let good = dts.find(s=>s.imageUrl==avatar)
+  return good && tokens.find(r=>r.reqID == good.requestId).serv
+}
 
-  if (total <= offset) return false;
-  const urls = Array.from({ length: REQUEST_LIMIT }, (_, i) => `www.roblox.com/games/getgameinstancesjson?placeId=${placeID}&startIndex=${i * 10 + offset}`);
-  const data = await Promise.all(urls.map(url => request(url, { retry: RETRY_LIMIT })));
-  if (!data[0].Collection.length) return getServer(user, avatar, placeID, data[0].TotalCollectionSize, 0);
-
-  const found = data
-    .flatMap(group => group.Collection)
-    .find(server => server.CurrentPlayers
-      .find(player => player.Id === user.Id || player.Thumbnail.Url === avatar));
-  if (!found) return getServer(user, avatar, placeID, data[0].TotalCollectionSize, offset + REQUEST_LIMIT * 10);
-  return found;
+const getServer = async (avatar, placeID, cursor, stock) => {
+  let tokensStock = stock || []
+  let r = await fetch("https://games.roblox.com/v1/games/"+placeID+"/servers/Public?limit=100",{headers:{"content-type":"application/json"}})
+  let dts = await r.json()
+  dts.data.forEach(s=>{
+    s.playerTokens.forEach(token=>{tokensStock.push({token:token,serv:s})})
+  })
+  
+  let found
+  if(tokensStock.length >= 100){
+    while(tokensStock.length >= 100 && !found){
+      found = await getAvatars(tokensStock.filter((_,i)=>i<100),avatar)
+      tokensStock = tokensStock.filter((_,i)=>i>=100)
+    }
+  }
+  if(found){return found}
+  if(!dts.nextPageCursor){return await getAvatars(tokensStock,avatar)}
+  getServer(avatar,placeID,dts.nextPageCursor,tokensStock)
 };
 
 const main = async () => {
@@ -169,15 +186,15 @@ const main = async () => {
   media.style.backgroundImage = `linear-gradient(to top right, ${COLORS.WHITE}, transparent), linear-gradient(to bottom left, transparent, ${COLORS.WHITE}), url(${thumbnail})`;
   media.style.opacity = 1;
 
-  const { TotalCollectionSize: total } = await request(`www.roblox.com/games/getgameinstancesjson?placeId=${place.placeId}&startIndex=999999`);
+  //const { TotalCollectionSize: total } = await request(`www.roblox.com/games/getgameinstancesjson?placeId=${place.placeId}&startIndex=999999`);
 
   notify('Searching...');
 
-  const found = await getServer(user, avatar, place.placeId, total, 0);
+  const found = await getServer(avatar, place.placeId);
 
   if (!found) return error('Server not found!');
 
-  return join(found.PlaceId, found.Guid);
+  return join(place.PlaceId, found.id);
 };
 
 search.onclick = () => main().catch(e => {
